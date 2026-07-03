@@ -1,0 +1,79 @@
+libview - shared 3D view math for radioglobe and claudegraph
+============================================================
+
+libview is a small, pure-math library holding the code that
+radioglobe (/usr/dave/work/radioglobe) and claudegraph
+(/usr/dave/work/claude9/claudegraph.c) had each grown their own
+diverging copy of.  It owns only numbers: no draw.h, no event.h,
+no locking, no I/O.  The caller owns the event loop, the
+projection style (radioglobe's orthographic disc vs claudegraph's
+perspective), display locking, and rendering.
+
+The contract is view.h.  It requires u.h and libc.h to be
+included first (double, ulong, frand, sqrt, ...).
+
+Contents
+--------
+  v3.c      Vec3 helpers: v3/v3add/v3sub/v3scale/v3dot/v3len and
+            v3rand (uniform-direction vector, uses frand()).
+            Ported from claudegraph's vadd/vsub/vmul/vdot/rndvec.
+
+  orbit.c   viewbasis() -- the orbit-camera screen basis
+            (ex/ey screen right/up, ez toward the viewer),
+            identical to claudegraph's setview() and radioglobe's
+            viewbasis() with yaw==lon, pitch==lat -- plus the
+            Orbit inertial-drag state machine: orbitinit,
+            orbitdown (grab stops spin), orbitmove (wrap-safe
+            velocity across the +-180 seam), orbitup, orbittick
+            (friction + vmin cutoff), orbitzoom, orbitnorm.
+
+  spring.c  springdefaults + springstep, a force-directed graph
+            layout: origin gravity, pairwise repulsion, edge
+            springs, damped integration with a per-step speed cap
+            and a |pos| clamp.  Faithful port of claudegraph's
+            physstep() over Sbody pointers and an Sedge list.
+
+  viewtest.c  Standalone test binary (no display) exercising the
+              math; one PASS/FAIL line per check, exits nil iff
+              all pass.
+
+Consumers
+---------
+Two programs link this library:
+  - claudegraph (/usr/dave/work/claude9), perspective projection.
+  - radioglobe  (/usr/dave/work/radioglobe), orthographic globe.
+Neither claude9fs, mkcoast, mkstations nor the other radioglobe
+helpers link it.
+
+Building
+--------
+    mk            build libview.a$O and viewtest
+    mk clean      remove objects and outputs
+
+The archive is libview.a$O (e.g. libview.a7 on arm64).  There is
+deliberately no install target; deployment is the human's call.
+
+Linking it into a consumer
+--------------------------
+Each consumer references the archive by absolute path from its own
+mkfile, adds the include dir to CFLAGS, links the archive into the
+affected binary only, and carries a virtual rule so a stale library
+is rebuilt:
+
+    LIBVIEW=/usr/dave/work/libview/libview.a$O
+    CFLAGS=$CFLAGS -I/usr/dave/work/libview
+
+    theprogram: $OFILES $LIBVIEW
+        $LD -o $target $OFILES $LIBVIEW
+
+    $LIBVIEW:V:
+        @{cd /usr/dave/work/libview && mk}
+
+Running the tests
+-----------------
+    mk viewtest
+    ./6.viewtest        # or 7.viewtest etc., per $objtype
+
+viewtest calls srand(1) first, so its output is deterministic.
+It prints one "PASS name" or "FAIL name: detail" line per check
+and exits nil only if every check passed.
