@@ -17,6 +17,11 @@ Contents
   v3.c      Vec3 helpers: v3/v3add/v3sub/v3scale/v3dot/v3len and
             v3rand (uniform-direction vector, uses frand()).
             Ported from claudegraph's vadd/vsub/vmul/vdot/rndvec.
+            Also v3cross (right-handed cross product) and v3unit
+            (unit vector, no zero-length guard), added for any
+            future arbitrary eye/center/up camera built the same
+            way orbit.c's viewbasis() builds its yaw/pitch one --
+            neither consumer uses them yet.
 
   orbit.c   viewbasis() -- the orbit-camera screen basis
             (ex/ey screen right/up, ez toward the viewer),
@@ -26,6 +31,19 @@ Contents
             orbitdown (grab stops spin), orbitmove (wrap-safe
             velocity across the +-180 seam), orbitup, orbittick
             (friction + vmin cutoff), orbitzoom, orbitnorm.
+
+            Orbit.frictionref makes the inertial decay depend on
+            elapsed time rather than on orbittick() call count:
+            set it to the caller's nominal tick length and pass
+            the real elapsed ms, and orbittick subdivides into
+            steps of at most that length, so a late tick applies
+            exactly the motion its interval deserves.  It
+            defaults to 0, which selects the original behavior
+            (one friction application per call, whatever ms says)
+            so existing callers are bit-for-bit unaffected;
+            radioglobe opts in because its per-pixel solid-earth
+            render can make a frame outlast the tick interval,
+            which otherwise made the spin lag real time.
 
   spring.c  springdefaults + springstep, a force-directed graph
             layout: origin gravity, pairwise repulsion, edge
@@ -49,16 +67,23 @@ Building
 --------
     mk            build libview.a$O and viewtest
     mk clean      remove objects and outputs
+    mk install    copy libview.a$O to $home/lib, view.h to $home/include
 
-The archive is libview.a$O (e.g. libview.a7 on arm64).  There is
-deliberately no install target; deployment is the human's call.
+The archive is libview.a$O (e.g. libview.a7 on arm64); the $O
+suffix disambiguates architecture within one flat directory, the
+same way $home/bin/$cputype disambiguates binaries, so install
+does not need a per-objtype subdirectory (unlike /$objtype/lib).
+This follows the precedent set by libao (/usr/dave/work/ao/libao),
+which installs libao.a and its headers to the same two directories.
 
 Linking it into a consumer
 --------------------------
-Each consumer references the archive by absolute path from its own
-mkfile, adds the include dir to CFLAGS, links the archive into the
-affected binary only, and carries a virtual rule so a stale library
-is rebuilt:
+The two current consumers (claudegraph, radioglobe) deliberately
+do NOT use the installed copy yet: both are under active
+development alongside libview, and pointing at the work tree
+directly -- with a virtual rule that reruns mk there -- means a
+consumer rebuild always picks up the latest library source
+without a separate "mk install" step in between:
 
     LIBVIEW=/usr/dave/work/libview/libview.a$O
     CFLAGS=$CFLAGS -I/usr/dave/work/libview
@@ -69,10 +94,25 @@ is rebuilt:
     $LIBVIEW:V:
         @{cd /usr/dave/work/libview && mk}
 
+A future or external consumer that doesn't share this source tree
+(e.g. after libview is pushed to its own repo) should instead
+build against the installed copy:
+
+    LIBVIEW=$home/lib/libview.a$O
+    CFLAGS=$CFLAGS -I$home/include
+
+    theprogram: $OFILES $LIBVIEW
+        $LD -o $target $OFILES $LIBVIEW
+
+In that mode the consumer is responsible for running
+"mk install" in libview after pulling a change; there is no
+auto-rebuild rule for an installed library, same as any other
+system library.
+
 Running the tests
 -----------------
     mk viewtest
-    ./6.viewtest        # or 7.viewtest etc., per $objtype
+    ./viewtest
 
 viewtest calls srand(1) first, so its output is deterministic.
 It prints one "PASS name" or "FAIL name: detail" line per check

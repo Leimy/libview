@@ -59,6 +59,36 @@ v3len(Vec3 a)
 }
 
 /*
+ * Right-handed cross product, a x b: perpendicular to both a and
+ * b, with the usual sign convention (v3cross(v3(1,0,0),v3(0,1,0))
+ * == v3(0,0,1)).  Added for callers that build a screen-space
+ * basis from an arbitrary eye/center/up triple rather than the
+ * yaw/pitch orbit parameterization viewbasis() already covers.
+ */
+Vec3
+v3cross(Vec3 a, Vec3 b)
+{
+	Vec3 v;
+
+	v.x = a.y*b.z - a.z*b.y;
+	v.y = a.z*b.x - a.x*b.z;
+	v.z = a.x*b.y - a.y*b.x;
+	return v;
+}
+
+/*
+ * Unit vector in the direction of a.  No zero-length guard (a
+ * zero-length input yields nan components); callers that might
+ * pass a zero vector should check v3len() first, the same as any
+ * hand-rolled normalize would have to.
+ */
+Vec3
+v3unit(Vec3 a)
+{
+	return v3scale(a, 1.0/v3len(a));
+}
+
+/*
  * Uniform-direction vector of length r, for jitter and initial
  * placement.  Ported from claudegraph's rndvec(); uses frand(),
  * so seed with srand() in the application if determinism matters.

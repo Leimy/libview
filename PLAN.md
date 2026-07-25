@@ -36,7 +36,7 @@ changes require a stated reason in the agent's final summary.
 
 - The library builds libview.a$O plus a viewtest binary in
   /usr/dave/work/libview via its own mkfile (</$objtype/mkfile,
-  explicit ar rule).  No system-wide install for now.
+  explicit ar rule).
 - Each consumer references the archive by absolute path:
       LIBVIEW=/usr/dave/work/libview/libview.a$O
   adds -I/usr/dave/work/libview to CFLAGS, links $LIBVIEW into the
@@ -45,7 +45,16 @@ changes require a stated reason in the agent's final summary.
   is rebuilt if stale:
       $LIBVIEW:V:
               @{cd /usr/dave/work/libview && mk}
-- Nobody runs any install target.  Deployment is the human's call.
+  This work-tree-pointing setup is deliberate while all three
+  projects are under active development together; see the
+  README's "Linking it into a consumer" section.
+- libview also has a "mk install" target, added once a real repo
+  existed for it (matching the libao precedent): it copies
+  libview.a$O to $home/lib and view.h to $home/include, flat, no
+  per-objtype subdirectory (the $O suffix already disambiguates
+  architecture).  Neither current consumer uses the installed
+  copy yet -- that switch is for when libview lives in its own
+  pushed repo and a consumer no longer shares this tree.
 
 ## Phases and ownership
 

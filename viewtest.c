@@ -258,6 +258,84 @@ testtick(void)
 }
 
 /*
+ * frictionref (real-time decay): with it set, one orbittick of
+ * n*ref must reproduce exactly n orbitticks of ref -- that is the
+ * whole point, so a late tick applies the motion its elapsed time
+ * deserves instead of a flat nominal step.  Also checks that the
+ * default (frictionref == 0) still behaves the legacy way, since
+ * claudegraph relies on that.
+ */
+static void
+testfrictionref(void)
+{
+	Orbit a, b;
+	double ref;
+	int i;
+
+	ref = 25.0;
+
+	/* n small steps vs one big step, same total elapsed time */
+	orbitinit(&a, 10.0, 20.0, 1);
+	a.frictionref = ref;
+	a.vyaw = 0.2;
+	a.vpitch = -0.05;
+	orbitinit(&b, 10.0, 20.0, 1);
+	b.frictionref = ref;
+	b.vyaw = 0.2;
+	b.vpitch = -0.05;
+
+	for(i = 0; i < 4; i++)
+		orbittick(&a, ref);
+	orbittick(&b, 4.0*ref);
+
+	if(fabs(a.yaw-b.yaw) < 1e-9 && fabs(a.pitch-b.pitch) < 1e-9
+	&& fabs(a.vyaw-b.vyaw) < 1e-12 && fabs(a.vpitch-b.vpitch) < 1e-12)
+		ok("frictionref-subdivides");
+	else
+		bad("frictionref-subdivides",
+			"4x%g: yaw %g vs %g, pitch %g vs %g, vyaw %g vs %g",
+			ref, a.yaw, b.yaw, a.pitch, b.pitch, a.vyaw, b.vyaw);
+
+	/*
+	 * Legacy default: frictionref 0 applies friction exactly once
+	 * per call regardless of ms, so a 4x-longer call moves 4x as
+	 * far and decays only once -- unchanged behavior for callers
+	 * that never set the field.
+	 */
+	orbitinit(&a, 0, 0, 1);
+	a.vyaw = 0.1;
+	orbittick(&a, 4.0*ref);
+	if(fabs(a.yaw - 0.1*4.0*ref) < 1e-9
+	&& fabs(a.vyaw - 0.1*a.friction) < 1e-12)
+		ok("frictionref-legacy-default");
+	else
+		bad("frictionref-legacy-default", "yaw=%g vyaw=%g", a.yaw, a.vyaw);
+
+	/* ms == frictionref must equal the legacy single step exactly */
+	orbitinit(&a, 0, 0, 1);
+	a.vyaw = 0.1;
+	a.frictionref = ref;
+	orbittick(&a, ref);
+	orbitinit(&b, 0, 0, 1);
+	b.vyaw = 0.1;
+	orbittick(&b, ref);
+	if(a.yaw == b.yaw && a.vyaw == b.vyaw)
+		ok("frictionref-nominal-identical");
+	else
+		bad("frictionref-nominal-identical", "yaw %g vs %g, vyaw %g vs %g",
+			a.yaw, b.yaw, a.vyaw, b.vyaw);
+
+	/* a zero or negative interval must do nothing */
+	orbitinit(&a, 7.0, 3.0, 1);
+	a.frictionref = ref;
+	a.vyaw = 0.1;
+	if(orbittick(&a, 0.0) == 0 && a.yaw == 7.0 && a.vyaw == 0.1)
+		ok("frictionref-zero-noop");
+	else
+		bad("frictionref-zero-noop", "yaw=%g vyaw=%g", a.yaw, a.vyaw);
+}
+
+/*
  * springstep settles a small graph (5 bodies, 4 edges, defaults)
  * to below 0.0015 max speed within a bounded number of steps, and
  * never lets any body exceed the |pos| clamp.
@@ -320,6 +398,55 @@ testspring(void)
 		bad("spring-clamp", "|pos|=%g exceeded clamp %g", worstpos, s.clamp);
 }
 
+/*
+ * v3cross: right-handed sign convention, orthogonality to both
+ * inputs, and anti-commutativity.  v3unit: unit length and same
+ * direction as the input (positive dot, parallel via a near-zero
+ * cross product).
+ */
+static void
+testvec(void)
+{
+	Vec3 x, y, z, c, a, b, cab, cba, u;
+	double len;
+
+	x = v3(1,0,0);
+	y = v3(0,1,0);
+	z = v3(0,0,1);
+
+	c = v3cross(x, y);
+	if(adiff(c, z) < 1e-12)
+		ok("cross-righthanded");
+	else
+		bad("cross-righthanded", "x cross y = (%g,%g,%g), want (0,0,1)", c.x, c.y, c.z);
+
+	a = v3(3, -2, 5);
+	b = v3(-1, 4, 2);
+	cab = v3cross(a, b);
+	if(fabs(v3dot(cab, a)) < 1e-9 && fabs(v3dot(cab, b)) < 1e-9)
+		ok("cross-orthogonal");
+	else
+		bad("cross-orthogonal", "a.(axb)=%g b.(axb)=%g", v3dot(cab,a), v3dot(cab,b));
+
+	cba = v3cross(b, a);
+	if(adiff(v3add(cab, cba), v3(0,0,0)) < 1e-9)
+		ok("cross-anticommutative");
+	else
+		bad("cross-anticommutative", "(axb)+(bxa) = (%g,%g,%g), want 0",
+			v3add(cab,cba).x, v3add(cab,cba).y, v3add(cab,cba).z);
+
+	u = v3unit(v3(3, 4, 0));
+	len = v3len(u);
+	if(fabs(len-1.0) < 1e-12)
+		ok("unit-length");
+	else
+		bad("unit-length", "len=%g want 1", len);
+	if(fabs(u.x-0.6) < 1e-12 && fabs(u.y-0.8) < 1e-12 && u.z == 0.0)
+		ok("unit-direction");
+	else
+		bad("unit-direction", "u=(%g,%g,%g), want (0.6,0.8,0)", u.x, u.y, u.z);
+}
+
 void
 main(void)
 {
@@ -330,7 +457,9 @@ main(void)
 	testseam();
 	testgrab();
 	testtick();
+	testfrictionref();
 	testspring();
+	testvec();
 
 	if(failed)
 		exits("fail");

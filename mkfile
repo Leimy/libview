@@ -25,5 +25,13 @@ viewtest: viewtest.$O $LIB
 %.$O: %.c $HFILES
 	$CC $CFLAGS $stem.c
 
+LIBDIR=$home/lib
+INCDIR=$home/include
+
+install:V: $LIB
+	mkdir -p $LIBDIR $INCDIR
+	cp $LIB $LIBDIR/$LIB
+	cp view.h $INCDIR/view.h
+
 clean:V:
 	rm -f *.[$OS] [$OS].out $LIB $TARG

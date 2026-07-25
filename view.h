@@ -28,6 +28,8 @@ Vec3	v3scale(Vec3, double);
 double	v3dot(Vec3, Vec3);
 double	v3len(Vec3);
 Vec3	v3rand(double r);	/* uniform-direction vector of length r */
+Vec3	v3cross(Vec3, Vec3);	/* right-handed cross product, a x b */
+Vec3	v3unit(Vec3);		/* unit vector in the same direction; no zero-length guard, a zero vector yields nan */
 
 /*
  * orbit.c: a camera orbiting the origin, with inertial drag.
@@ -56,6 +58,26 @@ struct Orbit {
 	/* momentum tuning */
 	double	friction;	/* velocity decay factor per tick */
 	double	vmin;		/* deg/ms below which spin stops */
+	/*
+	 * Reference tick length in ms for `friction`, enabling
+	 * real-time (frame-rate-independent) decay.  0 (the
+	 * orbitinit default) selects the legacy behavior: friction
+	 * is applied exactly once per orbittick() call, whatever ms
+	 * says, so the spin's trajectory depends on how often the
+	 * application manages to call orbittick.  That is fine for
+	 * a caller whose tick rate it can actually keep up with.
+	 *
+	 * Set it to the nominal tick length (e.g. 25.0 for a 40Hz
+	 * timer) and orbittick will instead subdivide the ms it is
+	 * given into steps of at most this length, so a call with
+	 * 4x the nominal ms behaves exactly as four nominal calls
+	 * would have.  Wall-clock spin-down then stays correct even
+	 * when frames (and therefore ticks) are late or dropped:
+	 * pass the real elapsed time since the previous call.
+	 * Passing exactly frictionref reproduces the legacy path
+	 * bit-for-bit, so switching a caller over is safe.
+	 */
+	double	frictionref;
 
 	/* momentum state (read if curious; owned by the library) */
 	double	vyaw, vpitch;	/* degrees per millisecond */
@@ -84,7 +106,9 @@ struct Orbit {
  * orbittick advances the inertial spin by ms milliseconds and
  * applies friction; it returns 1 if the view moved (caller
  * should redraw) and 0 if there is no spin (or a drag is in
- * progress).  Pitch hitting its clamp zeroes vpitch.
+ * progress).  Pitch hitting its clamp zeroes vpitch.  See
+ * Orbit.frictionref above for making the decay depend on
+ * elapsed time rather than on call count.
  *
  * orbitzoom multiplies zoom by factor and clamps.
  * orbitnorm re-wraps yaw and re-clamps pitch/zoom after the

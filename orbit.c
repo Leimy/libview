@@ -46,6 +46,12 @@ orbitinit(Orbit *o, double yaw, double pitch, double zoom)
 	o->zoommax = 128.0;
 	o->friction = 0.92;
 	o->vmin = 0.0005;
+	/*
+	 * frictionref stays 0 (legacy: one friction application per
+	 * orbittick call) so existing callers are unaffected; see
+	 * view.h.  A caller wanting real-time decay sets it to its
+	 * nominal tick length after orbitinit.
+	 */
 	/* vyaw/vpitch, drag state all zeroed by memset */
 	orbitnorm(o);
 }
@@ -140,21 +146,13 @@ orbitup(Orbit *o)
 }
 
 /*
- * Advance the inertial spin by ms milliseconds and apply
- * friction.  Returns 0 while dragging or when both velocities
- * are already zero (nothing to do); otherwise integrates,
- * wraps yaw / clamps pitch (a pitch clamp zeroes vpitch),
- * applies friction, zeroes both velocities once both fall below
- * vmin, and returns 1 (caller should redraw).
+ * One integration step of length ms with a single friction
+ * application: the legacy orbittick body, factored out so
+ * orbittick can repeat it when subdividing (see frictionref).
  */
-int
-orbittick(Orbit *o, double ms)
+static void
+orbitstep(Orbit *o, double ms, double fric)
 {
-	if(o->dragging)
-		return 0;
-	if(o->vyaw == 0.0 && o->vpitch == 0.0)
-		return 0;
-
 	o->yaw += o->vyaw * ms;
 	o->pitch += o->vpitch * ms;
 	if(o->pitch > o->pitchmax){
@@ -169,11 +167,56 @@ orbittick(Orbit *o, double ms)
 		o->yaw -= 360.0;
 	while(o->yaw < -180.0)
 		o->yaw += 360.0;
-	o->vyaw *= o->friction;
-	o->vpitch *= o->friction;
+	o->vyaw *= fric;
+	o->vpitch *= fric;
 	if(fabs(o->vyaw) < o->vmin && fabs(o->vpitch) < o->vmin){
 		o->vyaw = 0.0;
 		o->vpitch = 0.0;
+	}
+}
+
+/*
+ * Advance the inertial spin by ms milliseconds and apply
+ * friction.  Returns 0 while dragging or when both velocities
+ * are already zero (nothing to do); otherwise integrates,
+ * wraps yaw / clamps pitch (a pitch clamp zeroes vpitch),
+ * applies friction, zeroes both velocities once both fall below
+ * vmin, and returns 1 (caller should redraw).
+ *
+ * With frictionref set (see view.h), ms is subdivided into steps
+ * of at most frictionref so that the decay tracks elapsed time
+ * instead of call count: an application whose ticks run late
+ * (slow frames) still sees the spin cover the same ground in the
+ * same wall-clock time.  ms == frictionref yields exactly one
+ * step, identical to the legacy path; a trailing partial step
+ * gets a correspondingly reduced friction, pow(friction,
+ * dt/frictionref).
+ */
+int
+orbittick(Orbit *o, double ms)
+{
+	double ref, dt;
+
+	if(o->dragging)
+		return 0;
+	if(o->vyaw == 0.0 && o->vpitch == 0.0)
+		return 0;
+	if(ms <= 0.0)
+		return 0;
+
+	ref = o->frictionref;
+	if(ref <= 0.0){
+		/* legacy: one step, one friction application */
+		orbitstep(o, ms, o->friction);
+		return 1;
+	}
+
+	while(ms > 0.0){
+		dt = ms > ref ? ref : ms;
+		orbitstep(o, dt, dt == ref ? o->friction : pow(o->friction, dt/ref));
+		ms -= dt;
+		if(o->vyaw == 0.0 && o->vpitch == 0.0)
+			break;		/* spin ended mid-interval */
 	}
 	return 1;
 }
