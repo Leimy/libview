@@ -85,7 +85,12 @@ v3cross(Vec3 a, Vec3 b)
 Vec3
 v3unit(Vec3 a)
 {
-	return v3scale(a, 1.0/v3len(a));
+	double len;
+
+	len = v3len(a);
+	if(len < 1e-15)
+		return v3(0, 0, 0);
+	return v3scale(a, 1.0/len);
 }
 
 /*

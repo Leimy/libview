@@ -97,6 +97,16 @@ flip): yaw decreases as the mouse moves right (yaw = startyaw -
 dx*degperpx), pitch increases as the mouse moves down (pitch =
 startpitch + dy*degperpx).
 
+The table above describes the state at refactor time and was met.
+Divergence since, all consumer-side, none of it a fidelity
+regression: radioglobe raised its own zoommax from 128 to 512 (to
+separate same-city station clusters) and opted into
+Orbit.frictionref = 25 so its spin decays in real time rather than
+per orbittick() call -- its per-pixel textured-earth render can
+make a frame outlast the tick interval.  claudegraph sets neither
+and is bit-for-bit unaffected, which is exactly what
+frictionref's 0 default guarantees.
+
 ## Testing
 
 viewtest (agent A) is a standalone binary exercising the math with
@@ -106,6 +116,13 @@ the +-180 seam, grab-stops-spin, spring settling on a small graph
 (max speed falls below 0.0015 within a bounded number of steps).
 Prints one PASS/FAIL line per check; exits nil on all-pass.  The
 coordinator only compiles it; the human runs it.
+
+Added with frictionref: testfrictionref, asserting that 4 steps of
+ref equal 1 step of 4*ref, that ms == frictionref reproduces the
+legacy single step exactly, that the frictionref == 0 default still
+moves 4x as far and decays once for a 4x call (the claudegraph
+compatibility guarantee), and that a zero interval is a no-op.
+Also testvec, covering v3cross/v3unit.  Run: `mk && ./viewtest`.
 
 ## Out of scope (tracked from claudegraph-review.md, not this job)
 
